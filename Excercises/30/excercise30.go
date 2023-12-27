@@ -1,0 +1,111 @@
+package main
+
+import (
+	"fmt"
+	"sort"
+	"sync"
+	"time"
+)
+
+type safeCounter struct {
+	counts map[string]int
+	mux    *sync.Mutex
+}
+
+func (sc safeCounter) inc(key string) {
+	sc.mux.Lock()
+	defer sc.mux.Unlock()
+	sc.slowIncrement(key)
+}
+
+func (sc safeCounter) val(key string) int {
+	sc.mux.Lock()
+	defer sc.mux.Unlock()
+	return sc.counts[key]
+}
+
+func (sc safeCounter) slowIncrement(key string) {
+	tempCounter := sc.counts[key]
+	time.Sleep(time.Microsecond)
+	tempCounter++
+	sc.counts[key] = tempCounter
+}
+
+type emailTest struct {
+	email string
+	count int
+}
+
+func test(sc safeCounter, emailTests []emailTest) {
+	emails := make(map[string]struct{})
+
+	var wg sync.WaitGroup
+	for _, emailT := range emailTests {
+		emails[emailT.email] = struct{}{}
+		for i := 0; i < emailT.count; i++ {
+			wg.Add(1)
+			go func(emailT emailTest) {
+				sc.inc(emailT.email)
+				wg.Done()
+			}(emailT)
+		}
+	}
+
+	wg.Wait()
+
+	emailsSorted := make([]string, 0, len(emails))
+	for email := range emails {
+		emailsSorted = append(emailsSorted, email)
+	}
+
+	sort.Strings(emailsSorted)
+
+	for _, email := range emailsSorted {
+		fmt.Printf("Email: %s has %d emails\n", email, sc.val(email))
+	}
+
+	fmt.Println("======================")
+}
+
+func main() {
+	sc := safeCounter{
+		counts: make(map[string]int),
+		mux:    &sync.Mutex{},
+	}
+	test(sc, []emailTest{
+		{
+			email: "agus@craftlabs.net",
+			count: 23,
+		},
+		{
+			email: "agus@craftlabs.net",
+			count: 29,
+		},
+		{
+			email: "fer@craftlabs.net",
+			count: 31,
+		},
+		{
+			email: "fer@craftlabs.net",
+			count: 67,
+		},
+	})
+	test(sc, []emailTest{
+		{
+			email: "agus@craftlabs.net",
+			count: 48,
+		},
+		{
+			email: "agus@craftlabs.net",
+			count: 51,
+		},
+		{
+			email: "fer@craftlabs.net",
+			count: 20,
+		},
+		{
+			email: "fer@craftlabs.net",
+			count: 15,
+		},
+	})
+}
